@@ -1,11 +1,55 @@
 import base64
 from app import app
 from flask_jsonrpc import JSONRPC
+from flask import request
+import requests
+import json
+from .config import APIKEY
+
+app_state = {
+    "led_color": "00ff00",
+    "devices": {},
+}
 
 @app.route('/')
 @app.route('/index')
 def index():
     return "Hello, World!"
+
+
+def request_downlink_for_dev(devid):
+    print("Requesting downlink for %s" % devid)
+    url = "https://api.everynet.com/"
+    headers = {'content-type': 'application/json'}
+
+    # Example echo method
+    payload = {
+        "method": "notify",
+        "params": [APIKEY, devid],
+        "jsonrpc": "2.0",
+        "id": 0,
+    }
+    response = requests.post(url, data=json.dumps(payload), headers=headers).json()
+    print("Downlink result %s" % response["result"])
+
+
+def request_downlink_for_all():
+    for devid in app_state["devices"].keys():
+        request_downlink_for_dev(devid)
+
+@app.route('/setled', methods=['GET', 'POST'])
+def setled():
+    if request.method == 'POST':
+        app_state["led_color"] = request.form["setled"]
+#        request_downlink_for_all()
+    return """
+<p>Devices: {devlist}</p>
+<form method="post">
+    <input type="text" value="{ledvalue}" name="setled" />
+    <input type="submit" value="Set" />
+</form>
+""".format(**{ "ledvalue": app_state["led_color"], "devlist": repr(app_state["devices"])})
+
 
 jsonrpc = JSONRPC(app, '/api', enable_web_browsable_api=True)
 @jsonrpc.method('App.index')
@@ -31,6 +75,9 @@ Core Server may call this methods in parallel, depends on the number of incoming
 The Network do not store user data, so in case of Application Server is down the data will be lost."""
     if payload:
         payload = base64.b64decode(payload)
+    if not dev_eui in app_state["devices"]:
+        app_state["devices"][dev_eui] = {}
+    app_state["devices"][dev_eui]["uplink"] = payload
     print("Got uplink from %s (%s), payload: %s (kwargs: %s)" % (dev_eui, dev_addr, payload, repr(kwargs)))
     return u'ok'
 
@@ -41,6 +88,9 @@ def outdated(dev_eui, dev_addr, rx_time, counter_up, port, encrypted_payload, pa
     When Application server recovers, all outdated messages will be delivered by method outdated with same parameters as uplink."""
     if payload:
         payload = base64.b64decode(payload)
+    if not dev_eui in app_state["devices"]:
+        app_state["devices"][dev_eui] = {}
+    app_state["devices"][dev_eui]["uplink"] = payload
     print("Got outdated from %s (%s), payload: %s (kwargs: %s)" % (dev_eui, dev_addr, payload, repr(kwargs)))
     return u'ok'
 
@@ -65,7 +115,7 @@ def downlink(dev_eui, dev_addr, tx_time, counter_down, max_size, **kwargs):
     return {
         "pending": False,
         "confirmed": False,
-        "payload": base64.b64encode(b'Hello!').decode('UTF-8'),
+        "payload": base64.b64encode(app_state["led_color"].encode('UTF-8')).decode('UTF-8'),
     }
 
 
