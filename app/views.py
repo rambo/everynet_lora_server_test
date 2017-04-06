@@ -4,7 +4,10 @@ from flask_jsonrpc import JSONRPC
 from flask import request
 import requests
 import json
+# This is the apikey you specify in the application details in everynet portal
 from .config import APIKEY
+import logging
+import sys
 
 app_state = {
     "led_color": "00ff00",
@@ -18,30 +21,50 @@ def index():
 
 
 def request_downlink_for_dev(devid):
-    print("Requesting downlink for %s" % devid)
-    url = "https://api.everynet.com/"
+    app.logger.info("Requesting downlink for %s" % devid)
+
+    url = "https://core.eu-west-1.everynet.io/v1/rpc"
     headers = {'content-type': 'application/json'}
 
     # Example echo method
     payload = {
         "method": "notify",
-        "params": [APIKEY, devid],
+        "params": {
+            "api_key": APIKEY,
+            "dev_eui": devid,
+        },
         "jsonrpc": "2.0",
         "id": 0,
     }
     response = requests.post(url, data=json.dumps(payload), headers=headers).json()
-    print("Downlink result %s" % response["result"])
+    app.logger.info("Downlink request response %s" % repr(response))
 
 
 def request_downlink_for_all():
     for devid in app_state["devices"].keys():
         request_downlink_for_dev(devid)
 
+
+@app.route('/setled/<devid>', methods=['GET', 'POST'])
+def setleddev(devid):
+    app.logger.info("devid={}".format(devid))
+    if request.method == 'POST':
+        app_state["led_color"] = request.form["setled"]
+        request_downlink_for_dev(devid)
+    return """
+<p>Devices: {devlist}</p>
+<form method="post">
+    <input type="text" value="{ledvalue}" name="setled" />
+    <input type="submit" value="Set" />
+</form>
+""".format(**{ "ledvalue": app_state["led_color"], "devlist": repr(app_state["devices"])})
+
+
 @app.route('/setled', methods=['GET', 'POST'])
 def setled():
     if request.method == 'POST':
         app_state["led_color"] = request.form["setled"]
-#        request_downlink_for_all()
+        request_downlink_for_all()
     return """
 <p>Devices: {devlist}</p>
 <form method="post">
